@@ -1,17 +1,19 @@
 import pygame
 
 from tcg.game import Game
+# あなたのAI
+from tcg.players.player_booon import booon
+# ランダムAI（このパスを修正しました）
 from tcg.players.sample_random import RandomPlayer
-from tcg.players.claude_player import ClaudePlayer
 
 if __name__ == "__main__":
-    # ClaudePlayer vs RandomPlayer で対戦
-    print("=== ClaudePlayer (Blue) vs RandomPlayer (Red) ===")
+    # 対戦カードの表示
+    print("=== booon (Blue) vs RandomPlayer (Red) ===")
 
-    # デフォルト: ウィンドウ表示あり
-    Game(ClaudePlayer(), RandomPlayer()).run()
-
-    # ウィンドウ表示なし（高速実行）の場合:
-    #Game(ClaudePlayer(), RandomPlayer(), window=False).run()
+    # ゲームの実行
+    # 万が一これでも動かない場合は RandomPlayer() の代わりに 
+    # ClaudePlayer() などを試してみてください。
+    game = Game(booon(), RandomPlayer(), window=True)
+    game.run()
 
     pygame.quit()
