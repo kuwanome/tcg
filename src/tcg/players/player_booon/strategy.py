@@ -1,40 +1,46 @@
+import torch
+import random
 from tcg.config import fortress_limit
 
 class Strategy:
-    def __init__(self):
-        pass
+    def __init__(self, model, action_size):
+        self.model = model
+        self.action_size = action_size
 
-    def get_action(self, state):
-        # 防御ロジック
-        for i in range(12):
-            if state[i][0] == 1:
-                if state[i][3] < fortress_limit[state[i][2]] * 0.25:
-                    for neighbor in state[i][5]:
-                        if state[neighbor][0] == 1 and state[neighbor][3] > 15:
-                            return 1, neighbor, i
+    def get_action(self, state_tensor, epsilon, state_raw):
+        """AI(モデル)の推論と従来のルールを組み合わせた行動選択"""
+        if random.random() < epsilon:
+            action_idx = random.randint(0, self.action_size - 1)
+        else:
+            with torch.no_grad():
+                action_values = self.model(state_tensor)
+                action_idx = torch.argmax(action_values).item()
+        
+        return action_idx, self._idx_to_command(action_idx, state_raw)
 
-        # アップグレードロジック
-        for i in range(12):
-            if state[i][0] == 1:
-                level = state[i][2]
-                if level < 5 and state[i][4] == 0:
-                    required = fortress_limit[level] // 2
-                    has_enemy = any(state[n][0] == 2 for n in state[i][5])
-                    threshold = 2.0 if has_enemy else 1.2
-                    if state[i][3] >= required * threshold:
-                        return 2, i, 0
+    def _idx_to_command(self, idx, state):
+        """AIの出力インデックス(0~47)をゲームのコマンドに変換"""
+        sub_id = idx // 4
+        act_type = idx % 4
 
-        # 攻撃ロジック
-        my_forts = [i for i in range(12) if state[i][0] == 1]
-        for my_id in my_forts:
-            if state[my_id][3] < 10: continue
-            neighbors = state[my_id][5]
-            neutrals = [n for n in neighbors if state[n][0] == 0]
-            if neutrals:
-                return 1, my_id, neutrals[0]
-            enemies = [n for n in neighbors if state[n][0] == 2]
-            for target_id in enemies:
-                if state[my_id][3] > state[target_id][3] * 2:
-                    return 1, my_id, target_id
+        if state[sub_id][0] != 1:
+            return 0, 0, 0
+
+        neighbors = state[sub_id][5]
+
+        if act_type == 0: # 待機
+            return 0, 0, 0
+        elif act_type == 1: # アップグレード
+            return 2, sub_id, 0
+        elif act_type == 2: # 攻撃
+            targets = [n for n in neighbors if state[n][0] != 1]
+            if targets:
+                target_id = min(targets, key=lambda n: state[n][3])
+                return 1, sub_id, target_id
+        elif act_type == 3: # 援護
+            friends = [n for n in neighbors if state[n][0] == 1]
+            if friends:
+                target_id = min(friends, key=lambda n: state[n][3])
+                return 1, sub_id, target_id
 
         return 0, 0, 0

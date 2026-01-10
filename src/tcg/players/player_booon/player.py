@@ -1,124 +1,52 @@
 import torch
-import torch.optim as optim
-import torch.nn.functional as F
 import random
-from collections import deque
 from tcg.controller import Controller
-from .model import DuelingQNetwork
 
-# --- ’Ç‰Á: GPUƒfƒoƒCƒX‚Ì’è‹` ---
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class booon(Controller):
-    def __init__(self, mode="train"):
+    def __init__(self, model, strategy, mode="train"):
         super().__init__()
-        self.state_size = 60
-        self.action_size = 48
+        self.model = model
+        self.strategy = strategy
         self.mode = mode
+        self.trainer = None  # main_train.py ã§ã‚»ãƒƒãƒˆã•ã‚Œã¾ã™
         
-        # --- C³: ƒ‚ƒfƒ‹‚ğGPU(device)‚Ö“]‘— ---
-        self.model = DuelingQNetwork(self.state_size, self.action_size).to(device)
-        self.target_model = DuelingQNetwork(self.state_size, self.action_size).to(device)
-        self.target_model.load_state_dict(self.model.state_dict())
-        
-        self.optimizer = optim.Adam(self.model.parameters(), lr=1e-4)
-        self.memory = deque(maxlen=20000)
-        
+        self.epsilon = 1.0 if mode == "train" else 0.05
         self.last_state = None
         self.last_action = None
-        self.epsilon = 1.0 if mode == "train" else 0.05
-        self.total_steps = 0
+        self.last_info = None
 
-    # --- d—v: ‚±‚±‚ğC³ ---
+    def team_name(self):
+        """ã‚²ãƒ¼ãƒ ã‚¨ãƒ³ã‚¸ãƒ³ã«è¡¨ç¤ºã•ã‚Œã‚‹ãƒãƒ¼ãƒ å"""
+        return "booon"
+
     def _get_state_vector(self, state):
-        """ƒŠƒXƒgŒ`®‚Ìó‘Ô‚ğGPUã‚Ìƒeƒ“ƒ\ƒ‹‚É•ÏŠ·"""
         res = []
         for s in state:
             team = 1.0 if s[0] == 1 else (-1.0 if s[0] == 2 else 0.0)
-            # [ƒ`[ƒ€, í—Ş, ƒŒƒxƒ‹, •ºm”, ƒN[ƒ‹ƒ_ƒEƒ“]
             res.extend([team, s[1], s[2]/5.0, min(s[3]/50.0, 1.0), s[4]/100.0])
-        
-        # ƒeƒ“ƒ\ƒ‹‚ğì¬‚µA.to(device) ‚ÅGPU‚Ö‘—‚é
         return torch.FloatTensor(res).unsqueeze(0).to(device)
 
     def update(self, info):
         team, state, pawn, SpawnPoint, done = info
-        # GPU‚Éæ‚Á‚½ó‘ÔƒxƒNƒgƒ‹‚ğæ“¾
         current_state_vector = self._get_state_vector(state)
 
-        # --- ŠwKƒtƒF[ƒY ---
-        if self.mode == "train" and self.last_state is not None:
-            reward = self._calculate_reward(info)
-            # ƒƒ‚ƒŠ‚É•Û‘¶idevice‚Éæ‚Á‚½‚Ü‚Ü•Û‘¶‚³‚ê‚Ü‚·j
-            self.memory.append((self.last_state, self.last_action, reward, current_state_vector, done))
-            self._optimize_model()
+        # å­¦ç¿’ãƒ•ã‚§ãƒ¼ã‚º (Trainerã®ãƒ¡ãƒ¢ãƒªã¸ä¿å­˜)
+        if self.mode == "train" and self.last_state is not None and self.trainer is not None:
+            from trainer import calculate_reward
+            reward = calculate_reward(info, self.last_info)
+            self.trainer.memory.push(self.last_state, self.last_action, reward, current_state_vector, done)
+            self.trainer.train_step()
 
-        # --- s“®‘I‘ğƒtƒF[ƒY ---
-        action_idx = self._select_action(current_state_vector)
+        # è¡Œå‹•é¸æŠãƒ•ã‚§ãƒ¼ã‚º (Strategyã‚’ä½¿ç”¨)
+        action_idx, command = self.strategy.get_action(current_state_vector, self.epsilon, state)
         
         self.last_state = current_state_vector
         self.last_action = action_idx
-        self.last_info = info 
+        self.last_info = info
         
-        self.total_steps += 1
         if done:
             self.last_state = None
 
-        return self._idx_to_command(action_idx, state)
-
-    def _select_action(self, state_tensor):
-        """ƒÃ-greedy–@‚É‚æ‚és“®‘I‘ğ"""
-        if self.mode == "train" and random.random() < self.epsilon:
-            return random.randint(0, self.action_size - 1)
-        
-        with torch.no_grad():
-            # state_tensor‚ÍŠù‚ÉGPU‚É‚ ‚é‚Ì‚Å‚»‚Ì‚Ü‚Ü“ü—Í‰Â”\
-            action_values = self.model(state_tensor)
-            return torch.argmax(action_values).item()
-
-    def _calculate_reward(self, info):
-        # ... (ˆÈ‘O‚Ì•ñVƒƒWƒbƒN‚Æ“¯‚¶)
-        team, state, pawn, SpawnPoint, done = info
-        _, last_state, _, _, _ = self.last_info
-        reward = 0.0
-        my_forts = sum(1 for s in state if s[0] == 1)
-        last_my_forts = sum(1 for s in last_state if s[0] == 1)
-        if my_forts > last_my_forts: reward += 1.0
-        if my_forts < last_my_forts: reward -= 1.0
-        if done:
-            reward += 10.0 if my_forts > 6 else -10.0
-        return reward
-
-    def _optimize_model(self):
-        """GPUã‚Å‚Ìƒoƒbƒ`ŠwK"""
-        if len(self.memory) < 64: return
-        
-        batch = random.sample(self.memory, 64)
-        states, actions, rewards, next_states, dones = zip(*batch)
-
-        # states, next_states‚ÍŠù‚ÉGPUã‚É‚ ‚é‚Ì‚ÅAcat‚·‚é‚¾‚¯‚ÅOK
-        states = torch.cat(states)
-        next_states = torch.cat(next_states)
-        
-        # ‘¼‚Ìƒf[ƒ^‚àGPU‚É‘—‚é
-        actions = torch.tensor(actions).unsqueeze(1).to(device)
-        rewards = torch.tensor(rewards).float().to(device)
-        dones = torch.tensor(dones).float().to(device)
-
-        # Œ»İ‚ÌQ’l
-        current_q = self.model(states).gather(1, actions)
-        
-        # Ÿ‚Ìó‘Ô‚ÌÅ‘åQ’l
-        with torch.no_grad():
-            max_next_q = self.target_model(next_states).max(1)[0]
-            target_q = rewards + (0.99 * max_next_q * (1 - dones))
-
-        loss = F.smooth_l1_loss(current_q.squeeze(), target_q)
-        
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        
-    def _idx_to_command(self, idx, state):
-        # ... (ˆÈ‘O‚Ì48’Ê‚è‚Ì•ÏŠ·ƒƒWƒbƒN)
-        pass # À‘•Ï‚İ‚Å‚ ‚ê‚Î‚»‚Ì‚Ü‚Ü‹Lq
+        return command
