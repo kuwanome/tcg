@@ -1,46 +1,60 @@
 import torch
 import random
-from tcg.config import fortress_limit
 
 class Strategy:
-    def __init__(self, model, action_size):
+    def __init__(self, model, action_dim=48):
         self.model = model
-        self.action_size = action_size
+        self.action_dim = action_dim
 
-    def get_action(self, state_tensor, epsilon, state_raw):
-        """AI(モデル)の推論と従来のルールを組み合わせた行動選択"""
+    def get_action(self, state_vector, epsilon, state_info, my_team):
+        # 1. AIまたはランダムによる行動選択
         if random.random() < epsilon:
-            action_idx = random.randint(0, self.action_size - 1)
+            action_idx = random.randint(0, self.action_dim - 1)
         else:
             with torch.no_grad():
-                action_values = self.model(state_tensor)
-                action_idx = torch.argmax(action_values).item()
+                q_values = self.model(state_vector)
+                action_idx = q_values.max(1)[1].item()
+
+        # 2. 数値をコマンドに変換 (ここを _decode_action に修正)
+        command, subject, to = self._decode_action(action_idx, state_info, my_team)
+
+        # 3. 兵力ガード（小出し防止ロジック）
+        if command == 1: 
+            my_hp_val = state_info[subject][3]
+            my_total_hp = float(my_hp_val[0] if isinstance(my_hp_val, list) else my_hp_val)
+            my_atk = my_total_hp // 2
+            
+            target_hp_val = state_info[to][3]
+            target_hp = float(target_hp_val[0] if isinstance(target_hp_val, list) else target_hp_val)
+            
+            buffer = 5 if state_info[to][0] == 0 else 2
+            
+            if state_info[to][0] != my_team:
+                if my_atk <= (target_hp + buffer) and my_total_hp < 40:
+                    return action_idx, (0, 0, 0)
+
+        return action_idx, (command, subject, to)
+
+    def _decode_action(self, action_idx, state_info, my_team):
+        """AIのインデックスをゲームのコマンド (cmd, sub, to) に変換"""
+        if action_idx == 0: return (0, 0, 0)
         
-        return action_idx, self._idx_to_command(action_idx, state_raw)
-
-    def _idx_to_command(self, idx, state):
-        """AIの出力インデックス(0~47)をゲームのコマンドに変換"""
-        sub_id = idx // 4
-        act_type = idx % 4
-
-        if state[sub_id][0] != 1:
-            return 0, 0, 0
-
-        neighbors = state[sub_id][5]
-
-        if act_type == 0: # 待機
-            return 0, 0, 0
-        elif act_type == 1: # アップグレード
-            return 2, sub_id, 0
-        elif act_type == 2: # 攻撃
-            targets = [n for n in neighbors if state[n][0] != 1]
-            if targets:
-                target_id = min(targets, key=lambda n: state[n][3])
-                return 1, sub_id, target_id
-        elif act_type == 3: # 援護
-            friends = [n for n in neighbors if state[n][0] == 1]
-            if friends:
-                target_id = min(friends, key=lambda n: state[n][3])
-                return 1, sub_id, target_id
-
-        return 0, 0, 0
+        # 1-12: 強化
+        if 1 <= action_idx <= 12:
+            subject = action_idx - 1
+            if subject < len(state_info) and state_info[subject][0] == my_team:
+                return (2, subject, 0)
+            return (0, 0, 0)
+        
+        # 13-47: 移動
+        subject = (action_idx - 13) // 3
+        if subject < len(state_info) and state_info[subject][0] == my_team:
+            neighbors = state_info[subject][5]
+            if neighbors:
+                # 味方以外の拠点をターゲットにする
+                targets = [n for n in neighbors if state_info[n][0] != my_team]
+                if targets:
+                    target_id = targets[action_idx % len(targets)]
+                    return (1, subject, target_id)
+        
+        return (0, 0, 0)
