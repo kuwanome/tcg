@@ -5,9 +5,23 @@ class Strategy:
     def __init__(self, model, action_dim=48):
         self.model = model
         self.action_dim = action_dim
-
+        # 要塞配置図に基づく正確な隣接リスト（2を排除）
+        # strategy.py の neighbors を以下に書き換え
+        self.neighbors = {
+            0: [1, 3, 4],
+            1: [0, 2, 4],
+            2: [1, 4, 5],
+            3: [0, 4, 6, 7],
+            4: [0, 1, 2, 3, 5, 6, 7, 8],
+            5: [2, 4, 7, 8],
+            6: [3, 4, 7, 9],
+            7: [3, 4, 5, 6, 8, 9, 10, 11],
+            8: [4, 5, 7, 11],
+            9: [6, 7, 10],
+            10: [7, 9, 11],
+            11: [7, 8, 10]
+        }
     def get_action(self, state_vector, epsilon, state_info, my_team):
-        # 1. AIまたはランダムによる行動選択
         if random.random() < epsilon:
             action_idx = random.randint(0, self.action_dim - 1)
         else:
@@ -15,46 +29,34 @@ class Strategy:
                 q_values = self.model(state_vector)
                 action_idx = q_values.max(1)[1].item()
 
-        # 2. 数値をコマンドに変換 (ここを _decode_action に修正)
-        command, subject, to = self._decode_action(action_idx, state_info, my_team)
-
-        # 3. 兵力ガード（小出し防止ロジック）
-        if command == 1: 
-            my_hp_val = state_info[subject][3]
-            my_total_hp = float(my_hp_val[0] if isinstance(my_hp_val, list) else my_hp_val)
-            my_atk = my_total_hp // 2
-            
-            target_hp_val = state_info[to][3]
-            target_hp = float(target_hp_val[0] if isinstance(target_hp_val, list) else target_hp_val)
-            
-            buffer = 5 if state_info[to][0] == 0 else 2
-            
-            if state_info[to][0] != my_team:
-                if my_atk <= (target_hp + buffer) and my_total_hp < 40:
-                    return action_idx, (0, 0, 0)
-
-        return action_idx, (command, subject, to)
+        cmd, sub, to = self._decode_action(action_idx, state_info, my_team)
+        
+        # 最終チェック：道がない、または対象が2なら待機
+        if cmd == 1 and (to not in self.neighbors.get(sub, [])):
+            return action_idx, (0, 0, 0)
+        
+        return action_idx, (cmd, sub, to)
 
     def _decode_action(self, action_idx, state_info, my_team):
-        """AIのインデックスをゲームのコマンド (cmd, sub, to) に変換"""
         if action_idx == 0: return (0, 0, 0)
         
-        # 1-12: 強化
+        # 1. アップグレード (1-12)
         if 1 <= action_idx <= 12:
             subject = action_idx - 1
+            if subject == 2: return (0, 0, 0) # 2は無視
             if subject < len(state_info) and state_info[subject][0] == my_team:
                 return (2, subject, 0)
             return (0, 0, 0)
         
-        # 13-47: 移動
-        subject = (action_idx - 13) // 3
-        if subject < len(state_info) and state_info[subject][0] == my_team:
-            neighbors = state_info[subject][5]
-            if neighbors:
-                # 味方以外の拠点をターゲットにする
-                targets = [n for n in neighbors if state_info[n][0] != my_team]
-                if targets:
-                    target_id = targets[action_idx % len(targets)]
-                    return (1, subject, target_id)
+        # 2. 移動 (13-48)
+        move_offset = action_idx - 13
+        subject = move_offset // 3
+        dir_idx = move_offset % 3
+        
+        if subject == 2: return (0, 0, 0) # 2は無視
+        if subject in self.neighbors and state_info[subject][0] == my_team:
+            targets = self.neighbors[subject]
+            if dir_idx < len(targets):
+                return (1, subject, targets[dir_idx])
         
         return (0, 0, 0)

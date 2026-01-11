@@ -5,17 +5,23 @@ from trainer import safe_get, calculate_reward
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class booon(Controller):
-    def __init__(self, model, strategy, mode="train"):
-        super().__init__()
+    def __init__(self, model, strategy, mode="test", team=1):
         self.model = model
         self.strategy = strategy
         self.mode = mode
-        self.trainer = None  # main_train.py でセットされます
+        self.team = team  # 外部から指定された初期チームIDを保持
+        self.trainer = None
         
-        self.epsilon = 1.0 if mode == "train" else 0.05
+        # epsilonの設定を整理（訓練モードなら高め、テストなら低め）
+        if mode == "train":
+            self.epsilon = 0.6  # ここを0.6など、お好みの開始値に
+        else:
+            self.epsilon = 0.05 # セルフプレイの相手役やテスト時
+            
         self.last_state = None
         self.last_action = None
         self.last_info = None
+
 
     def team_name(self):
         return "booon"
@@ -53,24 +59,26 @@ class booon(Controller):
         return torch.FloatTensor(res).unsqueeze(0).to(device)
 
     def update(self, info):
+        # --- ここから下の行はすべて、行頭に半角スペース4つ（またはTab1つ）が必要です ---
         team_id = info[0]
-        current_state_vector = self._get_state_vector(info)
-
-        # --- 【追加】infoの5番目（インデックス4）にある「終了フラグ」を取り出す ---
-        current_done = info[4]
+        self.team = team_id # 最新の状態に更新
         
-        # 学習フェーズ
+        current_state_vector = self._get_state_vector(info)
+        current_done = info[4]
+
+        # 学習フェーズ (訓練モードの時のみ実行)
         if self.mode == "train" and self.last_state is not None and self.trainer is not None:
             reward = calculate_reward(info, self.last_info)
             self.trainer.memory.push(self.last_state, self.last_action, reward, current_state_vector, current_done)
             
-            # 1回だけでなく、ループで複数回学習させる
+            # 学習を回す
             for _ in range(3): 
                 self.trainer.train_step()
 
         # 行動選択
         action_idx, command = self.strategy.get_action(current_state_vector, self.epsilon, info[1], team_id)
         
+        # 次のステップのために現在の状態を保存
         if self.mode == "train":
             self.last_state = current_state_vector
             self.last_action = action_idx
