@@ -56,11 +56,17 @@ class booon(Controller):
         team_id = info[0]
         current_state_vector = self._get_state_vector(info)
 
+        # --- 【追加】infoの5番目（インデックス4）にある「終了フラグ」を取り出す ---
+        current_done = info[4]
+        
         # 学習フェーズ
         if self.mode == "train" and self.last_state is not None and self.trainer is not None:
             reward = calculate_reward(info, self.last_info)
-            self.trainer.memory.push(self.last_state, self.last_action, reward, current_state_vector, info[4])
-            self.trainer.train_step()
+            self.trainer.memory.push(self.last_state, self.last_action, reward, current_state_vector, current_done)
+            
+            # 1回だけでなく、ループで複数回学習させる
+            for _ in range(3): 
+                self.trainer.train_step()
 
         # 行動選択
         action_idx, command = self.strategy.get_action(current_state_vector, self.epsilon, info[1], team_id)

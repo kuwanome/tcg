@@ -25,7 +25,7 @@ class Trainer:
     def __init__(self, model, target_model):
         self.model = model
         self.target_model = target_model
-        self.batch_size = 128 
+        self.batch_size = 512
         self.gamma = 0.99
         self.optimizer = optim.Adam(self.model.parameters(), lr=1e-4)
         self.memory = ReplayMemory(20000)
