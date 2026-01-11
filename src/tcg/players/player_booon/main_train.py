@@ -2,17 +2,25 @@ import os
 import sys
 
 # =====================================================
-# 【最優先】まず最初に「探し場所」をPythonに教える
+# パス設定の修正版
 # =====================================================
-current_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+# 今実行している main_train.py の場所
+current_dir = os.path.dirname(os.path.abspath(__file__)) 
 
+# プロジェクトのルート(C:\github\tcg)を探す
+# player_booon -> players -> tcg -> src -> ここがプロジェクトルート
+project_root = os.path.abspath(os.path.join(current_dir, "..", "..", "..", ".."))
+
+# デバッグ用：パスが正しいか確認（エラーが出た時に原因がわかります）
+# print(f"DEBUG: project_root is {project_root}")
+
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# src フォルダも一応追加（tcg.gameなどを見つけるため）
+src_dir = os.path.join(project_root, "src")
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
-
-parent_dir = os.path.dirname(current_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
 
 # =====================================================
 # その後にインポートを行う
@@ -26,8 +34,12 @@ from strategy import Strategy
 from player import booon
 from trainer import Trainer
 from tcg.players.sample_random import RandomPlayer
-from claude_player import ClaudePlayer
-from nemesis_player import NemesisPlayer
+from enemy_AI.claude_player import ClaudePlayer
+from enemy_AI.nemesis_player import NemesisPlayer
+from enemy_AI.turtle_player import TurtlePlayer
+from enemy_AI.sniper_player import SniperPlayer
+from enemy_AI.swarm_player import SwarmPlayer
+from enemy_AI.killer_player import KillerPlayer
 
 SAVE_PATH = r"C:\github\tcg\src\tcg\players\player_booon\latest.pth"
 
@@ -41,7 +53,7 @@ class UltimateSafeWrapper:
         self.engine_routes = {
             0: [1, 3, 4],
             1: [0, 2, 4],
-            2: [1, 4, 5],
+            2: [],
             3: [0, 4, 6, 7],
             4: [0, 1, 2, 3, 5, 6, 7, 8],
             5: [2, 4, 7, 8],
@@ -84,7 +96,7 @@ def run_training():
     print(f"Using device: {device}")
 
     input_dim = 63 
-    action_dim = 48
+    action_dim = 109  # ★ 48 から 109 に変更
     
     model = DuelingQNetwork(input_dim, action_dim).to(device)
     target_model = DuelingQNetwork(input_dim, action_dim).to(device)
@@ -124,8 +136,8 @@ def run_training():
     agent.trainer = trainer
 
     # --- イプシロンの自動調整 ---
-    # ロード成功なら 0.6 から、失敗・リセットなら 1.0 からスタート
-    current_epsilon = 0.6 if load_success else 1.0
+    # ロード成功なら 0.05 から、失敗・リセットなら 1.0 からスタート
+    current_epsilon = 0.05 if load_success else 1.0
     
     win_history = deque(maxlen=100)
     win_count = 0
@@ -133,31 +145,39 @@ def run_training():
 
     print(f"--- 訓練開始：混合対戦モード (Eps開始値: {current_epsilon}) ---")
 
-    for ep in range(1, 1001):
-        # --- 1. 自分の役割 (1:先攻, 2:後攻) ---
+    for ep in range(1, 100001):
         my_team_id = 1 if random.random() < 0.5 else 2
+        
+        # 【修正！】既存の agent インスタンスの設定を更新して使い回す
         agent.team = my_team_id
-        agent.epsilon = current_epsilon
+        agent.mode = "train"      # 確実に訓練モードにする
+        agent.epsilon = current_epsilon # 減衰していく epsilon を適用
 
-        # --- 2. 対戦相手(enemy)の決定 ---
+        # --- 2. 対戦相手(enemy)の決定 (確率をGemini特化AIに配分) ---
         dice = random.random()
+        
         if dice < 0.10:
             enemy = RandomPlayer()
             enemy_label = "Random"
         elif dice < 0.20:
             enemy = ClaudePlayer()
             enemy_label = "Claude "
-        elif dice < 0.40:
+        elif dice < 0.30:
             enemy = NemesisPlayer()
             enemy_label = "Nemesis"
+        elif dice < 0.50:
+            enemy = KillerPlayer() # 鉄壁の守護神
+            enemy_label = "Killer "
+        elif dice < 0.60:
+            enemy = SniperPlayer() # 拠点の暗殺者
+            enemy_label = "Sniper "
         else:
+            # セルフプレイ（最新の自分と対局）
             opponent_id = 1 if my_team_id == 2 else 2
             opponent_model.load_state_dict(model.state_dict())
-            
-            # 相手(enemy)にも最新の neighbors を持った Strategy を渡す
             enemy_strategy = Strategy(opponent_model) 
             enemy = booon(opponent_model, enemy_strategy, mode="test", team=opponent_id)
-            enemy.epsilon = 0.05
+            enemy.epsilon = 0.20
             enemy_label = "booon2"
 
         # --- 3. ゲームの初期化 (Wrapperを適用してクラッシュを防ぐ) ---
@@ -166,9 +186,9 @@ def run_training():
         safe_enemy = UltimateSafeWrapper(enemy)
 
         if my_team_id == 1:
-            game = Game(safe_agent, safe_enemy, window=True)
+            game = Game(safe_agent, safe_enemy, window=False)
         else:
-            game = Game(safe_enemy, safe_agent, window=True)
+            game = Game(safe_enemy, safe_agent, window=False)
         
        # --- 4. 実行と判定 ---
         winner = game.run() # エンジンの判定は参考程度に
