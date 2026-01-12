@@ -1,6 +1,7 @@
 import random
+from tcg.controller import Controller
 
-class NemesisPlayer:
+class NemesisPlayer(Controller):
     def __init__(self):
         self.team = None
         # neighbors の定義

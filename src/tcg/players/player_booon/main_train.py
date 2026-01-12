@@ -136,8 +136,8 @@ def run_training():
     agent.trainer = trainer
 
     # --- イプシロンの自動調整 ---
-    # ロード成功なら 0.1 から、失敗・リセットなら 1.0 からスタート
-    current_epsilon = 0.2 if load_success else 1.0
+    # ロード成功なら 0.01 から、失敗・リセットなら 1.0 からスタート
+    current_epsilon = 0.15 if load_success else 1.0
     
     win_history = deque(maxlen=100)
     win_count = 0
@@ -186,9 +186,9 @@ def run_training():
         safe_enemy = UltimateSafeWrapper(enemy)
 
         if my_team_id == 1:
-            game = Game(safe_agent, safe_enemy, window=True)
+            game = Game(safe_agent, safe_enemy, window=False)
         else:
-            game = Game(safe_enemy, safe_agent, window=True)
+            game = Game(safe_enemy, safe_agent, window=False)
         
        # --- 4. 実行と判定 ---
         winner = game.run() # エンジンの判定は参考程度に

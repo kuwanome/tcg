@@ -1,23 +1,32 @@
 import torch
+import os  # パス操作用に追加
 from tcg.controller import Controller
-from trainer import safe_get, calculate_reward
+from .model import DuelingQNetwork   # フォルダ内からインポート
+from .strategy import Strategy       # フォルダ内からインポート
+from .trainer import safe_get        # 必要な関数のみ
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class booon(Controller):
-    def __init__(self, model, strategy, mode="test", team=1):
-        self.model = model
-        self.strategy = strategy
-        self.mode = mode
-        self.team = team  # 外部から指定された初期チームIDを保持
-        self.trainer = None
+    def __init__(self, mode="test", team=1): # 引数を省略可能にする
+        super().__init__()
         
-        # epsilonの設定を整理（訓練モードなら高め、テストなら低め）
-        if mode == "train":
-            self.epsilon = 0.6  # ここを0.6など、お好みの開始値に
-        else:
-            self.epsilon = 0.05 # セルフプレイの相手役やテスト時
-            
+        # モデルと戦略の自己生成
+        self.model = DuelingQNetwork(63, 109).to(device)
+        self.strategy = Strategy(self.model)
+        
+        # 【重要】相対パスで重みを読み込む
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        weights_path = os.path.join(current_dir, "latest.pth")
+        
+        if os.path.exists(weights_path):
+            self.model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=True))
+            self.model.eval() # 評価モード
+        
+        self.mode = mode
+        self.team = team
+        self.epsilon = 0.05 # トーナメント用
+        
         self.last_state = None
         self.last_action = None
         self.last_info = None

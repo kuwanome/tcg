@@ -1,6 +1,7 @@
 import random
+from tcg.controller import Controller
 
-class TurtlePlayer:
+class TurtlePlayer(Controller):
     def __init__(self):
         # 拠点間のつながり
         self.neighbors = {

@@ -53,14 +53,6 @@ class Strategy:
 
         return action_idx, self._decode_action(action_idx, state_info, my_team)
 
-        # 活用と探索のロジック（変更なし）
-        if random.random() < epsilon:
-            valid_indices = [i for i in range(self.action_dim) if q_values[0, i] > -1e7]
-            action_idx = random.choice(valid_indices) if valid_indices else 0
-        else:
-            action_idx = q_values.max(1)[1].item()
-
-        return action_idx, self._decode_action(action_idx, state_info, my_team)
 
     def _decode_action(self, action_idx, state_info, my_team):
         """インデックスをゲームコマンドに変換。実行不可なら(0,0,0)を返す"""

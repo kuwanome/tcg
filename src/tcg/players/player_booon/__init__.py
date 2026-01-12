@@ -1,5 +1,4 @@
-"""Bob Player - 複数ファイル構成のプレイヤー例."""
+"""AI Player booon - Dueling DQN with Wild Speed strategy."""
 
 from .player import booon
-
 __all__ = ["booon"]
