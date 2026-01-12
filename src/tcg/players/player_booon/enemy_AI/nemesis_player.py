@@ -1,4 +1,5 @@
 import random
+from tcg.controller import Controller
 
 class NemesisPlayer:
     def __init__(self):

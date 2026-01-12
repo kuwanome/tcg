@@ -10,6 +10,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 # プロジェクトのルート(C:\github\tcg)を探す
 # player_booon -> players -> tcg -> src -> ここがプロジェクトルート
 project_root = os.path.abspath(os.path.join(current_dir, "..", "..", "..", ".."))
+src_dir = os.path.join(project_root, "src")
 
 # デバッグ用：パスが正しいか確認（エラーが出た時に原因がわかります）
 # print(f"DEBUG: project_root is {project_root}")
@@ -132,7 +133,7 @@ def run_training():
     strategy = Strategy(model)
     trainer = Trainer(model, target_model)
     opponent_model = DuelingQNetwork(input_dim, action_dim).to(device)
-    agent = booon(model, strategy, mode="train")
+    agent = booon(mode="train")
     agent.trainer = trainer
 
     # --- イプシロンの自動調整 ---
@@ -156,19 +157,19 @@ def run_training():
         # --- 2. 対戦相手(enemy)の決定 (確率をGemini特化AIに配分) ---
         dice = random.random()
         
-        if dice < 0.20:
+        if dice < 0.10:
             enemy = RandomPlayer()
             enemy_label = "Random"
-        elif dice < 0.30:
+        elif dice < 0.15:
             enemy = ClaudePlayer()
             enemy_label = "Claude "
-        elif dice < 0.40:
+        elif dice < 0.30:
             enemy = NemesisPlayer()
             enemy_label = "Nemesis"
-        elif dice < 0.50:
+        elif dice < 0.45:
             enemy = KillerPlayer() # 鉄壁の守護神
             enemy_label = "Killer "
-        elif dice < 0.60:
+        elif dice < 0.80:
             enemy = SniperPlayer() # 拠点の暗殺者
             enemy_label = "Sniper "
         else:
@@ -176,7 +177,8 @@ def run_training():
             opponent_id = 1 if my_team_id == 2 else 2
             opponent_model.load_state_dict(model.state_dict())
             enemy_strategy = Strategy(opponent_model) 
-            enemy = booon(opponent_model, enemy_strategy, mode="test", team=opponent_id)
+            enemy = booon(mode="test", team=opponent_id)
+            enemy.model.load_state_dict(opponent_model.state_dict())
             enemy.epsilon = 0.20
             enemy_label = "booon2"
 
@@ -186,9 +188,9 @@ def run_training():
         safe_enemy = UltimateSafeWrapper(enemy)
 
         if my_team_id == 1:
-            game = Game(safe_agent, safe_enemy, window=False)
+            game = Game(safe_agent, safe_enemy, window=True)
         else:
-            game = Game(safe_enemy, safe_agent, window=False)
+            game = Game(safe_enemy, safe_agent, window=True)
         
        # --- 4. 実行と判定 ---
         winner = game.run() # エンジンの判定は参考程度に

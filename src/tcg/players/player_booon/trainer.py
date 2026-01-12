@@ -73,10 +73,11 @@ def calculate_reward(current_info, last_info):
 
     if diff > 0:
         # --- ここがポイント：早期制圧ボーナス ---
-        # ステップ 0 で最大 5000点、10000ステップで 0点になるような減衰ボーナス
-        early_bonus = max(0, 5000.0 - step_count * 0.5) 
         
         # 敵の拠点がまだ多い（序盤）ほど、さらに価値を高める
+        current_step = 0 
+        early_bonus = max(0, 5000.0 - current_step * 0.5) 
+        
         capture_bonus = 2000.0 + early_bonus + (len(enemy_forts) * 200.0)
         reward += capture_bonus
         

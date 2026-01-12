@@ -1,9 +1,22 @@
 import torch
 import os  # パス操作用に追加
+import sys
 from tcg.controller import Controller
-from .model import DuelingQNetwork   # フォルダ内からインポート
-from .strategy import Strategy       # フォルダ内からインポート
-from .trainer import safe_get        # 必要な関数のみ
+#from .model import DuelingQNetwork   # フォルダ内からインポート
+#from .strategy import Strategy       # フォルダ内からインポート
+#from .trainer import safe_get        # 必要な関数のみ
+
+try:
+    from model import DuelingQNetwork
+    from strategy import Strategy
+    from trainer import safe_get, calculate_reward
+except (ImportError, ValueError):
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.append(current_dir)
+    from model import DuelingQNetwork
+    from strategy import Strategy
+    from trainer import safe_get, calculate_reward
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
