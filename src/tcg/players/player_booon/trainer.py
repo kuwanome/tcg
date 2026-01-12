@@ -26,7 +26,7 @@ class Trainer:
         self.model = model
         self.target_model = target_model
         self.batch_size = 512
-        self.gamma = 0.99
+        self.gamma = 0.95
         self.optimizer = optim.Adam(self.model.parameters(), lr=1e-4)
         self.memory = ReplayMemory(50000)
         self.train_count = 0 
@@ -61,53 +61,40 @@ class Trainer:
         self.target_model.load_state_dict(self.model.state_dict())
 
 def calculate_reward(current_info, last_info):
-    # 1. まず情報を解体して変数を定義する (順序を修正)
     team, state, moving_pawns, _, done = current_info
-    _, last_state, _, _, _ = last_info
-    
     my_forts = [s for s in state if s[0] == team]
-    last_my_forts = [s for s in last_state if s[0] == team]
+    enemy_forts = [s for s in state if s[0] != team and s[0] != 0]
     
-    # 2. 基本報酬
-    reward = -0.5  # 時間ペナルティ
-    
-    # 3. 危機判定（拠点が1つ以下ならマイナス）
-    if len(my_forts) <= 1:
-        reward -= 0.1
+    # 拠点の数に基づく維持報酬
+    reward = (len(my_forts) - 6) * 1.0 
 
-    # 4. 領土の増減
-    diff = len(my_forts) - len(last_my_forts)
-    if diff > 0: 
-        reward += 250.0 
-    elif diff < 0: 
-        reward -= 400.0
+    # 拠点増減の評価
+    last_my_count = len([s for s in last_info[1] if s[0] == team])
+    diff = len(my_forts) - last_my_count
 
-    # 5. 移動・攻撃行動の評価
+    if diff > 0:
+        # 新しく奪った拠点を特定
+        new_f = next((s for s in state if s[0] == team and not any(ls[1]==s[1] and ls[0]==team for ls in last_info[1])), None)
+        # 残存兵1人につき15点のボーナス（効率制圧を評価）
+        pawn_bonus = new_f[3] * 15.0 if new_f else 0
+        reward += 1000.0 + (12 - len(enemy_forts)) * 100.0 + pawn_bonus
+    elif diff < 0:
+        reward -= 800.0
+
+    # 攻撃姿勢への評価
     for p in moving_pawns:
         if p[0] == team:
             target_idx = int(p[3])
-            if target_idx < len(state):
-                target_fort = state[target_idx]
-                if target_fort[0] == team:
-                    if target_fort[3] < 20: reward += 2.0 
-                else:
-                    reward += 1.0 
-    
-    # 6. 砦の状態管理
-    last_state_dict = {s[1]: s for s in last_state}
-    for s in state:
-        if s[0] == team:
-            if s[3] >= 45: reward -= 2.0 
-            ls = last_state_dict.get(s[1])
-            if ls and s[4] > ls[4]:
-                reward += 150.0
+            if target_idx < len(state) and state[target_idx][0] != team:
+                reward += 5.0 # 敵に向かう姿勢を評価
 
-    # 7. 勝利判定
+    # 決着報酬
     if done:
-        my_count = len(my_forts)
-        if my_count > len(state) // 2:
-            reward += 1500.0 
-        elif my_count == 0:
-            reward -= 1500.0
-            
+        if len(enemy_forts) == 0:
+            reward += 20000.0 # 完全制圧
+        elif len(my_forts) > len(enemy_forts):
+            reward += 10000.0 # 判定勝ち
+        else:
+            reward -= 10000.0
+
     return reward

@@ -136,8 +136,8 @@ def run_training():
     agent.trainer = trainer
 
     # --- イプシロンの自動調整 ---
-    # ロード成功なら 0.05 から、失敗・リセットなら 1.0 からスタート
-    current_epsilon = 0.05 if load_success else 1.0
+    # ロード成功なら 0.1 から、失敗・リセットなら 1.0 からスタート
+    current_epsilon = 0.2 if load_success else 1.0
     
     win_history = deque(maxlen=100)
     win_count = 0
@@ -145,7 +145,7 @@ def run_training():
 
     print(f"--- 訓練開始：混合対戦モード (Eps開始値: {current_epsilon}) ---")
 
-    for ep in range(1, 100001):
+    for ep in range(1, 5001):
         my_team_id = 1 if random.random() < 0.5 else 2
         
         # 【修正！】既存の agent インスタンスの設定を更新して使い回す
@@ -156,13 +156,13 @@ def run_training():
         # --- 2. 対戦相手(enemy)の決定 (確率をGemini特化AIに配分) ---
         dice = random.random()
         
-        if dice < 0.10:
+        if dice < 0.20:
             enemy = RandomPlayer()
             enemy_label = "Random"
-        elif dice < 0.20:
+        elif dice < 0.30:
             enemy = ClaudePlayer()
             enemy_label = "Claude "
-        elif dice < 0.30:
+        elif dice < 0.40:
             enemy = NemesisPlayer()
             enemy_label = "Nemesis"
         elif dice < 0.50:
@@ -186,9 +186,9 @@ def run_training():
         safe_enemy = UltimateSafeWrapper(enemy)
 
         if my_team_id == 1:
-            game = Game(safe_agent, safe_enemy, window=False)
+            game = Game(safe_agent, safe_enemy, window=True)
         else:
-            game = Game(safe_enemy, safe_agent, window=False)
+            game = Game(safe_enemy, safe_agent, window=True)
         
        # --- 4. 実行と判定 ---
         winner = game.run() # エンジンの判定は参考程度に
@@ -223,6 +223,11 @@ def run_training():
             torch.save(model.state_dict(), SAVE_PATH)
             target_model.load_state_dict(model.state_dict())
             print(f">>> 学習成果を蓄積（保存完了）: {SAVE_PATH} (勝利: {win_count}/{total_games})")
+
+    print("1000エピソードに到達しました。最終保存を行って終了します。")
+    Trainer.save_model("latest.pth") 
+    print("学習が正常に終了しました。お疲れ様でした！")
+
 
 if __name__ == "__main__":
     run_training()
