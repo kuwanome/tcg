@@ -4,7 +4,7 @@ from tcg.controller import Controller
 from tcg.config import fortress_cool, fortress_limit
 
 
-class OptimusCommander(Controller):
+class Gemini5player(Controller):
     def __init__(self):
         super().__init__()
         self.step_count = 0

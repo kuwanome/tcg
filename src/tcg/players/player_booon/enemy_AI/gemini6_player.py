@@ -46,7 +46,7 @@ SIDE_MAP = {
     10: 'CENTER', 1: 'CENTER', 4: 'CENTER', 3: 'CENTER' # 3,4は中央付近
 }
 
-class test(Controller):
+class Gemini6player(Controller):
     def __init__(self) -> None:
         super().__init__()
         self.step = 0

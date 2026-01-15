@@ -2,7 +2,7 @@ import math
 from tcg.controller import Controller
 from tcg.config import fortress_limit
 
-class GeminiPlayer2(Controller):
+class Gemini1Player(Controller):
     """
     ParallelExpander (並列進行・自律分散型)
     

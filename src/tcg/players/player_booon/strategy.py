@@ -21,7 +21,7 @@ class Strategy:
             11: [7, 8, 10]
         }
 
-    def get_action(self, state_vector, epsilon, state_info, my_team):
+    def get_action(self, state_vector, epsilon, state_info, my_team, current_step=0):
         with torch.no_grad():
             q_values = self.model(state_vector).clone()
 
@@ -31,18 +31,29 @@ class Strategy:
                 q_values[0, action_idx] = -1e9
                 continue
 
-            if cmd[0] == 1: # 移動・攻撃
-                sub_idx, tar_idx = cmd[1], cmd[2]
-                source_pawn = state_info[sub_idx][3]
-                target_pawn = state_info[tar_idx][3]
-                target_owner = state_info[tar_idx][0]
+            c_type, src, dst = cmd
+            
+            if current_step > 45000 and c_type == 2:
+                q_values[0, action_idx] -= 50.0
+            
+            if (c_type == 1 and dst in [4, 7]) or (c_type == 2 and src in [4, 7]):
+                q_values[0, action_idx] += 2.0
 
-                # --- 戦術的制限: 勝てる算段がある時だけ動く ---
-                if target_owner != my_team:
+            if c_type == 1: 
+                source_pawn = state_info[src][3]
+                if state_info[dst][0] != my_team:
+                    target_pawn = state_info[dst][3]
                     # 相手の兵数 + 5人以上の余裕が必要
                     required = target_pawn + 5
                     if source_pawn < required:
                         q_values[0, action_idx] = -1e9
+                else:
+                    is_s = all(state_info[n][0] == my_team or state_info[n][0] == 0 for n in self.neighbors[src])
+                    is_f = any(state_info[n][0] != my_team and state_info[n][0] != 0 for n in self.neighbors[dst])
+                    if is_s and is_f:
+                        q_values[0, action_idx] += 3.0
+                    if state_info[dst][3] < 10:
+                        q_values[0, action_idx] += 5.0
 
         # 探索と活用の選択
         if random.random() < epsilon:
@@ -66,16 +77,15 @@ class Strategy:
                 return (2, subject, 0)
             return (0, 0, 0)
         
-        # 2. 移動 (13-108)
-        move_offset = action_idx - 13
-        subject = move_offset // 8
-        dir_idx = move_offset % 8
+        # 2. 移動アクションのデコード
+        move_idx = action_idx - 13
+        src = move_idx // 8
+        dst_relative = move_idx % 8
         
-        # 自分の拠点であること
-        if subject < len(state_info) and state_info[subject][0] == my_team:
-            targets = self.neighbors.get(subject, [])
-            # 有効な移動先（隣接リスト内）であること
-            if dir_idx < len(targets):
-                return (1, subject, targets[dir_idx])
-        
+        if src < 12 and src in self.neighbors:
+            possible_dsts = self.neighbors[src]
+            if dst_relative < len(possible_dsts):
+                dst = possible_dsts[dst_relative]
+                if state_info[src][0] == my_team:
+                    return (1, src, dst)
         return (0, 0, 0)

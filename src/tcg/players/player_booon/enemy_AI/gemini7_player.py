@@ -3,7 +3,7 @@ from tcg.config import fortress_cool, fortress_limit
 from collections import deque
 
 
-class PlayerImamu(Controller):
+class Gemini7player(Controller):
     """
     改良点:
     1. 【物流革命】BFSで「敵までの距離」を計算し、後方から前線へ一直線に兵を送る

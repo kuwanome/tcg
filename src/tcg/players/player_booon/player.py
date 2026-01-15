@@ -21,29 +21,29 @@ except (ImportError, ValueError):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 class booon(Controller):
-    def __init__(self, mode="test", team=1): # 引数を省略可能にする
+    def __init__(self, mode="test", team=1):
         super().__init__()
         
-        # モデルと戦略の自己生成
         self.model = DuelingQNetwork(63, 109).to(device)
         self.strategy = Strategy(self.model)
         
-        # 【重要】相対パスで重みを読み込む
+        # --- 【追加】ステップ数の初期化 ---
+        self.step_count = 0 
+        
         current_dir = os.path.dirname(os.path.abspath(__file__))
         weights_path = os.path.join(current_dir, "latest.pth")
         
         if os.path.exists(weights_path):
             self.model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=True))
-            self.model.eval() # 評価モード
+            self.model.eval()
         
         self.mode = mode
         self.team = team
-        self.epsilon = 0.05 # トーナメント用
+        self.epsilon = 0.05
         
         self.last_state = None
         self.last_action = None
         self.last_info = None
-
 
     def team_name(self):
         return "booon"
@@ -81,10 +81,12 @@ class booon(Controller):
         return torch.FloatTensor(res).unsqueeze(0).to(device)
 
     def update(self, info):
-        # --- ここから下の行はすべて、行頭に半角スペース4つ（またはTab1つ）が必要です ---
         team_id = info[0]
-        self.team = team_id # 最新の状態に更新
+        self.team = team_id
         
+        # --- 【追加】ステップ数をカウントアップ ---
+        self.step_count += 1
+
         current_state_vector = self._get_state_vector(info)
         current_done = info[4]
 
@@ -92,18 +94,25 @@ class booon(Controller):
         if self.mode == "train" and self.last_state is not None and self.trainer is not None:
             reward = calculate_reward(info, self.last_info)
             self.trainer.memory.push(self.last_state, self.last_action, reward, current_state_vector, current_done)
-            
-            # 学習を回す
             for _ in range(3): 
                 self.trainer.train_step()
 
-        # 行動選択
-        action_idx, command = self.strategy.get_action(current_state_vector, self.epsilon, info[1], team_id)
+        # --- 【変更】第5引数に self.step_count を渡すように修正 ---
+        action_idx, command = self.strategy.get_action(
+            current_state_vector, 
+            self.epsilon, 
+            info[1], 
+            team_id, 
+            self.step_count  # ここに追加
+        )
         
-        # 次のステップのために現在の状態を保存
         if self.mode == "train":
             self.last_state = current_state_vector
             self.last_action = action_idx
             self.last_info = info
+
+        # もし試合が終了(done)したら、ステップ数をリセットする処理を入れておくと安心です
+        if current_done:
+            self.step_count = 0
 
         return command

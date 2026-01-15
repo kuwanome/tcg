@@ -1,7 +1,7 @@
 from tcg.controller import Controller
 import random
 
-class NatsukiPlayer(Controller):
+class Gemini3player(Controller):
     """
     ユーザー戦略実装版AI
     戦略: 後方基地(0,2)をLvMaxまで育て、その後中央(4,7)へ戦力を集中投下する。
