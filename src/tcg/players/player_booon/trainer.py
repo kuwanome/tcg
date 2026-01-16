@@ -21,15 +21,18 @@ class ReplayMemory:
     def __len__(self):
         return len(self.memory)
 
+
+# --- Trainerクラスの改良 ---
 class Trainer:
     def __init__(self, model, target_model):
         self.model = model
         self.target_model = target_model
         self.batch_size = 512
-        self.gamma = 0.95
+        self.gamma = 0.98  # 少し長期的な利益を重視
         self.optimizer = optim.Adam(self.model.parameters(), lr=1e-4)
-        self.memory = ReplayMemory(50000)
+        self.memory = ReplayMemory(100000) # メモリを増やして過去の良質な経験を保持
         self.train_count = 0 
+        self.tau = 0.005 # ★追加：ソフトアップデート用の係数
 
     def train_step(self):
         self.train_count += 1
@@ -45,63 +48,76 @@ class Trainer:
         next_state_batch = torch.cat(next_state_batch).to(device)
         done_batch = torch.tensor(done_batch).float().to(device)
 
+        # 現在のQ値
         q_values = self.model(state_batch).gather(1, action_batch)
+        
+        # 目標Q値の計算（Double DQN的な要素を少し含める）
         with torch.no_grad():
             next_q = self.target_model(next_state_batch).max(1)[0]
             expected_q = reward_batch + (self.gamma * next_q * (1 - done_batch))
 
+        # 損失計算（SmoothL1は外れ値に強いので継続）
         loss = F.smooth_l1_loss(q_values, expected_q.unsqueeze(1))
+        
         self.optimizer.zero_grad()
         loss.backward()
+        # 勾配クリッピング（安定化に必須）
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         self.optimizer.step()
 
+        # ★追加：ソフトアップデート（少しずつ目標モデルを更新する）
+        self.soft_update_target_model()
+
+    def soft_update_target_model(self):
+        """目標モデルを少しずつ更新し、学習の激しい変動を抑える"""
+        for target_param, local_param in zip(self.target_model.parameters(), self.model.parameters()):
+            target_param.data.copy_(self.tau * local_param.data + (1.0 - self.tau) * target_param.data)
+
     def update_target_model(self):
-        """定期的に呼び出して、学習中のモデルを目標モデルにコピーする"""
+        """(互換性維持のため残す) 完全同期"""
         self.target_model.load_state_dict(self.model.state_dict())
 
-def calculate_reward(current_info, last_info):
+# --- 報酬計算の改良 ---
+def calculate_reward(current_info, last_info, current_step=0):
     team, state, moving_pawns, _, done = current_info
     my_forts = [s for s in state if s[0] == team]
     enemy_forts = [s for s in state if s[0] != team and s[0] != 0]
     
-    # 1. 基本報酬（維持報酬を少し下げて、動きを促す）
-    reward = len(my_forts) * 2.0 
+    # 1. 基本報酬（桁を落としてスケーリングを適正化：1.0 = 標準的な「良い」状態）
+    reward = len(my_forts) * 0.1 
+
+    # レベル（内政）への加点（Gemini勢に対抗するために必須）
+    my_levels = sum([s[2] for s in my_forts])
+    reward += my_levels * 0.05
 
     last_my_count = len([s for s in last_info[1] if s[0] == team])
     diff = len(my_forts) - last_my_count
 
     if diff > 0:
-        # --- ここがポイント：早期制圧ボーナス ---
-        
-        # 敵の拠点がまだ多い（序盤）ほど、さらに価値を高める
-        current_step = 0 
-        early_bonus = max(0, 5000.0 - current_step * 0.5) 
-        
-        capture_bonus = 2000.0 + early_bonus + (len(enemy_forts) * 200.0)
-        reward += capture_bonus
+        # 拠点を奪取した（非常に高い評価だが、桁は抑える）
+        # ステップが進むほど奪取の価値を高める（逆転を評価するため）
+        step_multiplier = 1.0 + (current_step / 50000)
+        reward += 10.0 * step_multiplier
         
     elif diff < 0:
-        # 拠点を取られた時のペナルティ（ここも重くして防御意識を持たせる）
-        reward -= 3000.0
+        # 拠点を喪失した（強いペナルティ）
+        reward -= 15.0
 
-    # 【重要】「攻め続けている」状態を高く評価する
-    # 膠着を防ぐため、移動中の兵がいることへの加点を強化
+    # 行動の促進（膠着状態の回避）
     if moving_pawns:
-        reward += 20.0 
+        reward += 0.2 
     else:
-        # 自分の拠点のどこかに兵が50人以上溜まっているのに動いていないならマイナス
-        # これで「溜め込みすぎ」を防ぐ
-        if any(s[3] > 50 and s[0] == team for s in state):
-            reward -= 10.0
+        # 資源の死蔵（兵が溢れているのに動かない）を罰する
+        if any(s[3] > s[2] * 20 + 20 and s[0] == team for s in state):
+            reward -= 0.1
 
-    # 決着報酬（殲滅こそが至高）
+    # 決着報酬（報酬の最大値を100〜200程度に抑える。5万は大きすぎて学習が壊れる原因）
     if done:
         if not enemy_forts:
-            reward += 50000.0 # さらにアップ
+            reward += 100.0 # 完全勝利
         elif len(my_forts) > len(enemy_forts):
-            reward += 10000.0
+            reward += 50.0  # 判定勝ち
         else:
-            reward -= 10000.0
+            reward -= 50.0  # 敗北
 
     return reward

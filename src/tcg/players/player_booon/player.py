@@ -2,9 +2,9 @@ import torch
 import os  # パス操作用に追加
 import sys
 from tcg.controller import Controller
-from .model import DuelingQNetwork   # フォルダ内からインポート
-from .strategy import Strategy       # フォルダ内からインポート
-from .trainer import safe_get        # 必要な関数のみ
+from model import DuelingQNetwork   # フォルダ内からインポート
+from strategy import Strategy       # フォルダ内からインポート
+from trainer import safe_get        # 必要な関数のみ
 
 try:
     from model import DuelingQNetwork

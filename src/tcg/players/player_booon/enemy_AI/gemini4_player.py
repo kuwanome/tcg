@@ -7,7 +7,7 @@ from tcg.controller import Controller
 from tcg.config import fortress_cool, fortress_limit
 
 # クラス名を main.py の要求に合わせて 'NewPlayer' に変更しました
-class gas0Player(Controller):
+class Gemini4Player(Controller):
     """
     対ClaudePlayer特化型戦略AI
     """
