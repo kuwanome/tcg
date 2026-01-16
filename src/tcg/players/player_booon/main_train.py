@@ -142,11 +142,12 @@ def run_training():
     agent.trainer = trainer
 
     # --- イプシロンの自動調整 ---
-    current_epsilon = 0.3 if load_success else 1.0
+    current_epsilon = 0.5097 if load_success else 1.0
     
     win_history = deque(maxlen=100)
     win_count = 0
     total_games = 0
+    
 
     # --- ★追加: CSVログのヘッダー作成 ---
     if not os.path.exists(LOG_FILE):
@@ -155,9 +156,9 @@ def run_training():
             # エピソード, 勝率, イプシロン, 獲得報酬合計, 対戦相手
             writer.writerow(["episode", "win_rate", "epsilon", "total_reward", "enemy"])
 
-    print(f"--- 訓練開始：混合対戦モード (Eps開始値: {current_epsilon}) ---")
+    print(f"--- 訓練開始：Phase 2 対Gemini特訓モード (Eps再設定: {current_epsilon}) ---")
 
-    for ep in range(1, 2001):
+    for ep in range(1161, 3001):
         my_team_id = 1 if random.random() < 0.5 else 2
         
         # 既存の agent インスタンスの設定を更新
@@ -169,51 +170,43 @@ def run_training():
         # (booonクラス側に total_reward 属性がなくてもエラーにならないよう動的にセット)
         agent.total_reward = 0 
 
-        # --- 2. 対戦相手(enemy)の決定 (カリキュラム学習：弱い敵優先) ---
+        # --- 2. 対戦相手(enemy)の決定 (Phase 3: バランス型) ---
         dice = random.random()
         
-        # 【初級：基礎固め 65%】
-        if dice < 0.15:
-            enemy = Gemini1Player()
-            enemy_label = "Gem1_Rt"  # ルート固定
-        elif dice < 0.30:
+        # 【成功体験ゾーン 40%】(とにかく攻めて勝つ感覚を取り戻す)
+        if dice < 0.10:
+            enemy = Gemini1Player() 
+            enemy_label = "Gemini1 "
+        elif dice < 0.20:
             enemy = Gemini2Player()
-            enemy_label = "Gem2_Ec"  # 内政特化
-        elif dice < 0.45:
-            enemy = KillerPlayer() 
-            enemy_label = "Killer "  # 亀タイプ
-        elif dice < 0.65:
-            enemy = ClaudePlayer()   # 標準的なAI
-            enemy_label = "Claude "
-
-        # 【中級：実戦 20%】
-        elif dice < 0.75:
+            enemy_label = "Gemini2Player"
+        elif dice < 0.35:
             enemy = Gemini3Player()
-            enemy_label = "Gem3_Rs"  # 速攻
-        elif dice < 0.85:
-            enemy = NemesisPlayer()  # 攻撃的
-            enemy_label = "Nemesis"
-
-        # 【上級：挑戦・セルフプレイ 15%】
-        elif dice < 0.88:
+            enemy_label = "Gemini3Player"
+        elif dice < 0.50:
             enemy = Gemini4Player()
-            enemy_label = "Gem4_Th"
-        elif dice < 0.91:
+            enemy_label = "Gemini4Player"
+        elif dice < 0.65:
             enemy = Gemini5Player()
-            enemy_label = "Gem5_Op"
-        elif dice < 0.94:
+            enemy_label = "Gemini5Player"
+
+        # 【実戦復帰ゾーン 40%】(Gemini 1, 2 メイン)
+        elif dice < 0.75:
             enemy = Gemini6Player()
-            enemy_label = "Gem6_Ct"
-        elif dice < 0.97:
-            enemy = Gemini7Player()
-            enemy_label = "Gem7_Im"
+            enemy_label = "Gemini6Player"
+        elif dice < 0.85:
+            enemy = Gemini7Player() 
+            enemy_label = "Gemini7Player"
+
+        # 【高レベル・同キャラ 10%】
         else:
-            # セルフプレイ
+            # セルフプレイ（最新の自分と対局）
             opponent_id = 1 if my_team_id == 2 else 2
             opponent_model.load_state_dict(model.state_dict())
+            enemy_strategy = Strategy(opponent_model) 
             enemy = booon(mode="test", team=opponent_id)
             enemy.model.load_state_dict(opponent_model.state_dict())
-            enemy.epsilon = 0.10
+            enemy.epsilon = 0.20
             enemy_label = "booon2"
 
         # --- 3. ゲームの初期化 ---
@@ -258,7 +251,7 @@ def run_training():
             writer.writerow([ep, current_win_rate, current_epsilon, episode_reward, enemy_label])
 
         # --- 7. 後処理 ---
-        current_epsilon = max(0.05, current_epsilon * 0.998)
+        current_epsilon = max(0.05, current_epsilon * 0.992)
         
         if ep % 10 == 0:
             torch.save(model.state_dict(), SAVE_PATH)

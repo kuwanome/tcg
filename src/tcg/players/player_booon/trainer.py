@@ -80,38 +80,79 @@ class Trainer:
 # --- 報酬計算の改良 ---
 def calculate_reward(current_info, last_info, current_step=0):
     team, state, moving_pawns, _, done = current_info
+    
+    # 自分の拠点と敵の拠点
     my_forts = [s for s in state if s[0] == team]
     enemy_forts = [s for s in state if s[0] != team and s[0] != 0]
     
-    # 1. 基本報酬（桁を落としてスケーリングを適正化：1.0 = 標準的な「良い」状態）
+    # --- 1. 基本報酬 (維持) ---
     reward = len(my_forts) * 0.1 
 
-    # レベル（内政）への加点（Gemini勢に対抗するために必須）
-    my_levels = sum([s[2] for s in my_forts])
-    reward += my_levels * 0.05
+    # --- 2. 中央支配ボーナス (New!) ---
+    # 4番と7番はマップの要所。ここを制圧していると高く評価
+    for fid in [4, 7]:
+        if state[fid][0] == team:
+            reward += 0.3  # 3つ分の拠点維持に相当する価値
 
+    # --- 3. 内政ボーナス (強化) ---
+    # レベル合計値への評価
+    my_levels = sum([s[2] for s in my_forts])
+    
+    # ここを 0.08 から 0.2 くらいに上げると、
+    # AIは「領土拡大」よりも「レベル上げ」に快感を覚えるようになります。
+    reward += my_levels * 0.3
+
+    # --- 4. 変化への報酬 ---
     last_my_count = len([s for s in last_info[1] if s[0] == team])
     diff = len(my_forts) - last_my_count
 
     if diff > 0:
-        # 拠点を奪取した（非常に高い評価だが、桁は抑える）
-        # ステップが進むほど奪取の価値を高める（逆転を評価するため）
-        step_multiplier = 1.0 + (current_step / 50000)
-        reward += 10.0 * step_multiplier
-        
+        # ★ここを強化★
+        # 拠点数が少ないうち（＝序盤）の拡大に対し、莫大なボーナスを与える
+        if len(my_forts) <= 2:
+            reward += 50.0  # 「初手の中立確保」はゲームを決めるほど偉い！
+        elif len(my_forts) <= 4:
+            reward += 30.0  # 序盤の展開もすごく偉い
+        else:
+            reward += 15.0  # 通常の拡大
+            
     elif diff < 0:
-        # 拠点を喪失した（強いペナルティ）
-        reward -= 15.0
+        reward -= 20.0 # 奪われるのは痛い
 
-    # 行動の促進（膠着状態の回避）
+    # --- 5. 兵力差ボーナス (New!) ---
+    # 敵の兵を減らす（倒す）ことを評価
+    my_pawns = sum([s[3] for s in my_forts])
+    last_my_pawns = sum([s[3] for s in last_info[1] if s[0] == team])
+    
+    # 単純な増減だけでなく、移動中の兵も含めた総戦力の推移を見たいが
+    # ここでは簡易的に「兵が増えている＝良い内政」として評価
+    if my_pawns > last_my_pawns:
+        reward += 0.01
+
+    # -----------------------------------------------------------
+    # 6. 中央要塞化ボーナス (修正版)
+    # -----------------------------------------------------------
+    for fid in [4, 7]:
+        if state[fid][0] == team:
+            troops = state[fid][3]
+            
+            # 【重要】上限（キャップ）を設ける！
+            # 「兵50体までは評価するが、それ以上溜めてもボーナスは増えない」
+            # これにより、51体目からは「ここに置いておくより、攻めて領土ボーナス(+15)を稼ごう」となる。
+            capped_troops = min(troops, 50) 
+            
+            # 上限がある分、単価は少し高く(0.03 -> 0.05)して、50体までは全力で溜めさせる
+            reward += capped_troops * 0.05
+            
+    # 行動促進
     if moving_pawns:
-        reward += 0.2 
+        reward += 0.1
     else:
-        # 資源の死蔵（兵が溢れているのに動かない）を罰する
+        # 兵が溢れているのに動かないとペナルティ
         if any(s[3] > s[2] * 20 + 20 and s[0] == team for s in state):
-            reward -= 0.1
+            reward -= 0.2
 
-    # 決着報酬（報酬の最大値を100〜200程度に抑える。5万は大きすぎて学習が壊れる原因）
+    # --- 6. 決着報酬 ---
     if done:
         if not enemy_forts:
             reward += 100.0 # 完全勝利

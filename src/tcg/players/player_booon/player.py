@@ -90,20 +90,28 @@ class booon(Controller):
         current_state_vector = self._get_state_vector(info)
         current_done = info[4]
 
-        # 学習フェーズ (訓練モードの時のみ実行)
+        # 学習フェーズ
         if self.mode == "train" and self.last_state is not None and self.trainer is not None:
-            reward = calculate_reward(info, self.last_info)
+            # step_count を渡すように修正
+            reward = calculate_reward(info, self.last_info, self.step_count)
+            
+            # ★★★ 【修正】ここを追加！報酬を記録する ★★★
+            if hasattr(self, 'total_reward'):
+                self.total_reward += reward
+            
             self.trainer.memory.push(self.last_state, self.last_action, reward, current_state_vector, current_done)
+            
             for _ in range(3): 
                 self.trainer.train_step()
 
-        # --- 【変更】第5引数に self.step_count を渡すように修正 ---
+        # 行動選択
         action_idx, command = self.strategy.get_action(
             current_state_vector, 
             self.epsilon, 
-            info[1], 
-            team_id, 
-            self.step_count  # ここに追加
+            info[1],      # state_info
+            info[2],      # ★★★ ここに info[2] (移動中の兵士) を追加してください！ ★★★
+            team_id,      # my_team
+            self.step_count
         )
         
         if self.mode == "train":
